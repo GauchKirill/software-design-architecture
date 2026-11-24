@@ -3,7 +3,7 @@
 Консольный модуль «ПОС» из домашнего задания №1 по курсу «Проектирование и архитектура ПО».
 Учебный домен: студенты, рубрикатор критериев, выставленные оценки и честный итоговый балл.
 
-Проект демонстрирует не «ещё один CRUD», а доменную модель в духе DDD, осознанное применение
+Проект демонстрирует доменную модель в духе DDD, осознанное применение
 SOLID и пять уместных паттернов GoF. Домен не знает про CSV, JSON, файлы и консоль: всё общение
 с внешним миром идёт через порты, реализации подключаются на краю приложения.
 
@@ -48,30 +48,28 @@ sudo apt install build-essential cmake ninja-build \
     libgtest-dev libgmock-dev
 ```
 
-`libgtest-dev` в репозитории Ubuntu сейчас даёт GoogleTest 1.17 — это удовлетворяет
-требованию `find_package(GTest 1.14 …)` («версия не ниже 1.14»). Если пакета нет,
-CMake скачает GoogleTest 1.14 через `FetchContent` (нужен интернет).
-
 ### Сборка, тесты, запуск
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j
-ctest --test-dir build --output-on-failure
+cmake --preset release
+cmake --build --preset release
 
-./build/pos                 # интерактивное меню
-./build/pos --demo          # сквозной сценарий, экспорт в ./out/
-./build/pos --help          # справка
+./build/release/pos                 # интерактивное меню
+./build/release/pos --demo          # сквозной сценарий, экспорт в ./out/
+./build/release/pos --help          # справка
 ```
 
-Или через пресеты: `cmake --preset debug`, `cmake --build --preset debug`, `ctest --preset debug`
-(бинарник тогда лежит в `./build/debug/pos`).
+```bash
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+```
 
-Пресеты выставляют `Boost_ROOT=/usr`, поэтому CMake берёт **системный** Boost, а не сторонние
-сборки из `/usr/local`: установленный «поверх» Boost со статическими библиотеками (и разметкой
-`runtime-link=static`) ломает `find_package(Boost … CONFIG)` ошибкой
-«No suitable build variant has been found». При ручной конфигурации передайте
-`-DBoost_ROOT=/usr` — подробности в разделе «Boost».
+```bash
+cmake --preset asan
+cmake --build --preset asan
+ctest --preset asan
+```
 
 | Опция | По умолчанию | Смысл |
 |---|---|---|
@@ -277,7 +275,7 @@ ctest --test-dir build --output-on-failure
 
 ### Boost.DI: важный нюанс
 
-Boost.DI **не входит в состав Boost** (ни 1.83, ни 1.90): это отдельный проект
+Boost.DI **не входит в состав Boost**: это отдельный проект
 [boost-ext/di](https://github.com/boost-ext/di), на сайте которого прямо написано
 «not an official Boost library». Поэтому официальный single header v1.3.0 закреплён в
 `third_party/boost-ext/di/`:
@@ -293,59 +291,6 @@ Boost.DI **не входит в состав Boost** (ни 1.83, ни 1.90): э�
 Контейнер compile-time: отсутствующая зависимость или цикл — ошибка компиляции, а не runtime.
 Поэтому тестируется не «контейнер вообще», а собранный граф: `tests/app/composition_root_test.cpp`
 проверяет общее состояние репозиториев, выбор формулы и округления. Подробнее — ADR-0004.
-
-### Версии Boost и защита от ABI-конфликта
-
-`cmake/PosBoost.cmake` определяет версию по **фактически используемым заголовкам**
-(`BOOST_VERSION` из `boost/version.hpp`) и вызывает
-`find_package(Boost <точная версия> EXACT CONFIG ...)`. Затем сверяет `Boost_VERSION_MACRO` с
-версией заголовков и падает с понятным сообщением при расхождении. Это защищает от ситуации
-«заголовки 1.90 + `.so` 1.83», которая даёт `undefined reference` на `boost::function_n`/`function1`.
-
-Если в системе несколько Boost: уберите лишний из include/library путей или задайте
-`-DBoost_ROOT=/usr` (именно так делают пресеты из `CMakePresets.json`) либо точный
-`-DBoost_DIR=/путь/к/cmake/Boost-1.90.0`. Проверить фактическую версию:
-
-```bash
-echo | g++ -std=c++23 -x c++ -E -dM -include boost/version.hpp - | grep BOOST_LIB_VERSION
-```
-
-#### Если в `/usr/local` остался Boost, собранный из исходников
-
-Классический симптом после переустановки ОС или `b2 install`:
-
-```text
-CMake Error at .../BoostConfig.cmake:
-  No suitable build variant has been found.
-```
-
-Значит, CMake нашёл не системный Boost, а сборку из `/usr/local` (её `BoostConfig.cmake`
-описывает статические варианты, которых нет в наличии). Проверить:
-
-```bash
-ls /usr/local/lib/libboost_*.a /usr/local/lib/libboost_*.so 2>/dev/null
-ls /usr/local/lib/cmake/Boost-*/ 2>/dev/null
-dpkg -S /usr/local/lib/libboost_program_options.a 2>/dev/null || echo "файл не из пакета apt"
-```
-
-Если файлы не принадлежат пакету (`dpkg -S` их не знает), это ручная установка —
-удалите её, не затрагивая системный Boost из `/usr`:
-
-```bash
-sudo rm -rf /usr/local/lib/libboost_*.a /usr/local/lib/libboost_*.so* \
-            /usr/local/lib/cmake/Boost-* /usr/local/lib/cmake/boost_* \
-            /usr/local/include/boost
-sudo ldconfig
-```
-
-Затем пересоберите с чистого кэша:
-
-```bash
-rm -rf build build/debug build/asan
-cmake --preset debug && cmake --build --preset debug && ctest --preset debug
-```
-
----
 
 ## Структура проекта
 
@@ -375,49 +320,12 @@ cmake/                      # PosBoost, PosHelpers, PosTesting
 
 ---
 
-## VS Code / IntelliSense
-
-В репозитории уже лежит `.vscode/c_cpp_properties.json`. Он нужен потому, что `std::span` и
-`std::format` появились в C++20, а расширение C/C++ по умолчанию может выбрать C++17 или не
-суметь автоматически опросить очень новый GCC 16.
-
-Что настроено:
-
-- `compilerPath: /usr/bin/g++-16`;
-- `cppStandard: gnu++23` и `compilerArgs: ["-std=gnu++23"]`;
-- явные пути стандартной библиотеки GCC 16
-  (`/usr/include/c++/16`, `/usr/include/x86_64-linux-gnu/c++/16`,
-  `/usr/lib/gcc/x86_64-linux-gnu/16/include`);
-- `compileCommands: build/compile_commands.json` — точные флаги и include-пути из CMake;
-- в `settings.json` — CMake Tools (`buildDirectory = build`, `configureOnOpen`).
-
-Перед первым открытием проекта (и после изменения CMake) выполните:
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-```
-
-`compile_commands.json` создаётся благодаря `CMAKE_EXPORT_COMPILE_COMMANDS ON`. Если вы используете
-пресет и каталог `build/debug`, поправьте `compileCommands` на
-`${workspaceFolder}/build/debug/compile_commands.json` (или переконфигурируйте пресет в
-`build`). Если `compile_commands.json` ещё нет, явные `includePath` всё равно дадут подсветку.
-
-Если IntelliSense продолжает ругаться:
-
-1. Command Palette → **C/C++: Reset IntelliSense Database**.
-2. Убедитесь, что расширение C/C++ поддерживает C++23; если нет — поставьте
-   `cppStandard: "c++20"` (для `std::span` и `std::format` этого достаточно) и перезагрузите окно.
-3. Проверьте, что в файле есть соответствующий `#include <span>` / `#include <format>`.
-4. Если вы меняли системный Boost/компилятор — удалите `.vscode/ipch` и перезапустите VS Code.
-
----
-
 ## Тестирование
 
 ```bash
-ctest --test-dir build --output-on-failure
-ctest --test-dir build -R FinalScore          # только доменные тесты по имени
-ctest --test-dir build -R DemoScenario        # интеграционный сценарий
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
 ```
 
 | Набор | Что проверяет |
@@ -444,9 +352,6 @@ ctest --preset asan
 ---
 
 ## Обязательные вопросы: рефлексия по решениям
-
-В PDF список вопросов не приведён, поэтому ниже — вопросы, которые возникают при защите
-архитектуры, и короткие ответы «почему сделано именно так».
 
 **1. Почему `Student` — Entity, а `StudentId`/`FullName` — Value Objects?**
 Студент сохраняет идентичность при смене ФИО/группы; его сравнивают по номеру зачётки. ФИО и
@@ -506,39 +411,17 @@ Service сохранят роли; появятся доменные событ�
 Boost.DI» и сохраняет офлайн-воспроизводимость. Альтернатива — самописный контейнер — была бы
 хуже: меньше проверенного поведения и больше кода не по теме ДЗ.
 
-**12. Где вы сознательно упростили модель?**
-Один рубрикатор/курс, критерии иммутабельны, in-memory репозитории без транзакций и блокировок,
-уникальность пары — на уровне application. Все упрощения перечислены выше с последствиями и
-направлением развития; они не нарушают инварианты ТЗ.
-
-
 ---
 
 ## Роль ИИ
 
-Проект реализован с помощью AI-ассистента (Cline) по тексту домашнего задания: ассистент
+Проект реализован с помощью AI-ассистента по тексту домашнего задания: ассистент
 предложил архитектуру, сгенерировал код, CMake, тесты, README и ADR. Все решения проверены
 запуском: сборка GCC 16/C++23, 61/61 gtest-тестов, ASan/UBSan, ручной прогон `--demo`, просмотр
-CSV/JSON. AI не «додумывал» требования: спорные места (версия Boost, отсутствие Boost.DI в
-системе, обязательные вопросы) зафиксированы в README и ADR. Ответственность за понимание и
-защиту работы — на авторе; при вопросах преподавателя опирайтесь на карты DDD/SOLID/GoF и тесты.
+CSV/JSON.
 
----
-
-## Ограничения и дальнейшее развитие
-
-- **Хранение:** in-memory, данные живут в рамках процесса. Следующий шаг — адаптер к SQLite/Postgres
-  за теми же портами; домен не изменится.
-- **Критерии:** добавление и просмотр; изменение/удаление не реализованы, потому что затрагивают
-  уже выставленные оценки. Нужен сценарий пересогласования и, возможно, версия рубрикатора.
-- **Один курс/рубрикатор.** Мультикурсовая версия — `CourseId` в агрегатах и выбор курса в UI.
-- **Пересдачи.** Сейчас одна актуальная оценка на пару; пересдачи потребуют `AttemptNumber` и
-  правила выбора попытки в итоге.
-- **Конкурентность.** In-memory репозитории не потокобезопасны; для сервера — транзакции,
-  оптимистичные блокировки, уникальные индексы.
-- **Безопасность/роли.** Нет аутентификации: «преподаватель» не отделён от «студента». В консольном
-  прототипе это вне рамок, но для продукта обязательно.
-- **Экспорт.** CSV/JSON с фиксированным набором полей; новый формат — новый подкласс Template Method.
+Полное понимание архитектуры, список используемого стека технологий, написание чёткого ТЗ
+для выполнения задания, осталось на стороне студента.
 
 ---
 
