@@ -1,0 +1,48 @@
+# --- Каталоги сборки (пресеты: build/debug, build/release, build/asan) ---
+build/
+build-*/
+out/
+
+# --- Артефакты CMake, если конфигурировали прямо в корне репозитория ---
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
+
+# --- Скомпилированные объекты и библиотеки ---
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# --- Кэши и профилировщики ---
+.cache/
+ccache/
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+
+# --- IDE / редакторы ---
+.idea/
+.vscode/ipch/
+.vscode/*.log
+*.swp
+*~
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+
